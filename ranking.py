@@ -129,19 +129,43 @@ def process_cross_sectional_rankings(
     }
 
 
+def compute_rankings_and_top100(
+    indicator_outputs: dict[str, np.ndarray] | tuple, top_k: int = 100
+) -> dict[str, np.ndarray]:
+    """Alias / wrapper matching main.py import expectations."""
+    if isinstance(indicator_outputs, dict):
+        return process_cross_sectional_rankings(indicator_outputs, top_k=top_k)
+    else:
+        list1_matrix, list2_matrix = indicator_outputs[0], indicator_outputs[1]
+        (
+            ranks_list1,
+            ranks_list2,
+            ranks_min,
+            top100_flags,
+            top100_ordered_indices,
+        ) = compute_cross_sectional_ranks_numba(
+            list1_matrix, list2_matrix, top_k=top_k
+        )
+        return {
+            "ranks_list1": ranks_list1,
+            "ranks_list2": ranks_list2,
+            "ranks_min": ranks_min,
+            "top100_flags": top100_flags,
+            "top100_ordered_indices": top100_ordered_indices,
+        }
+
+
 if __name__ == "__main__":
-    # Test execution placeholder
     num_tickers = 1000
     num_bars = 250
 
-    # Simulate dummy indicator outputs matching Chat 2 formats
     np.random.seed(42)
     mock_avg_ema = np.random.randn(num_tickers, num_bars)
     mock_vol_sma = np.random.rand(num_tickers, num_bars) * 1000000.0
 
     mock_indicators = {"avg_ema": mock_avg_ema, "vol_sma": mock_vol_sma}
 
-    results = process_cross_sectional_rankings(mock_indicators, top_k=100)
+    results = compute_rankings_and_top100(mock_indicators, top_k=100)
 
     print("Ranking processing complete.")
     print(f"Ranks Min Shape: {results['ranks_min'].shape}")
