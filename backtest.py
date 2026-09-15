@@ -69,7 +69,7 @@ def extract_trade_log(
     top_100_mask: np.ndarray,
     close_prices: np.ndarray,
     timestamps: np.ndarray,
-    tickers: list[str]
+    tickers: list | np.ndarray = None
 ) -> pd.DataFrame:
     """
     Identifies entry (BUY) and exit (EXITS) timestamps for every stock 
@@ -79,7 +79,8 @@ def extract_trade_log(
     trades = []
 
     for t in range(num_tickers):
-        ticker = tickers[t] if tickers else f"STOCK_{t}"
+        # Updated condition to safely evaluate NumPy array/List ticker indexing
+        ticker = tickers[t] if (tickers is not None and len(tickers) > t) else f"STOCK_{t}"
         in_position = False
         entry_idx = 0
         entry_price = 0.0
@@ -126,7 +127,7 @@ class BacktestEngine:
         top_100_mask: np.ndarray,
         close_prices: np.ndarray,
         timestamps: np.ndarray,
-        tickers: list[str] = None
+        tickers: list | np.ndarray = None
     ) -> dict:
         """
         Main interface executing portfolio accounting and generating output formats.
