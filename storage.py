@@ -58,26 +58,48 @@ class R2StorageManager:
         timestamps: list[str] | np.ndarray,
         valid_tickers: list[str] | np.ndarray,
         top_100_matrix: np.ndarray,
+        max_rank_cols: int = 100,
     ):
-        """Serializes and uploads daily top 100 ordered stock lists per timestamp as CSV."""
+        """Serializes and uploads daily top ordered stock lists per timestamp as CSV.
+
+        Safely handles cases where available tickers < 100 by padding missing rank positions.
+        """
         tickers_arr = np.array(valid_tickers)
+        num_tickers = len(tickers_arr)
         records = []
 
-        # Parse matrix (Timestamps x Top 100 Index Positions)
+        # Determine target rank positions count based on tickers or requested max
+        actual_k = min(num_tickers, max_rank_cols)
+
         for t_idx, ts in enumerate(timestamps):
-            top_indices = top_100_matrix[t_idx]
-            ranked_tickers = tickers_arr[top_indices]
-            
             row = {"timestamp": str(ts)}
-            for rank_pos, ticker in enumerate(ranked_tickers, start=1):
-                row[f"rank_{rank_pos}"] = ticker
+
+            if top_100_matrix.dtype == bool:
+                # Handle boolean flag matrix (Num_Tickers, Timestamps)
+                active_indices = np.where(top_100_matrix[:, t_idx])[0]
+                ranked_tickers = tickers_arr[active_indices]
+            else:
+                # Handle integer index matrix (Timestamps, Top_K)
+                top_indices = top_100_matrix[t_idx]
+                # Filter out invalid indices or indices beyond dataset bounds
+                valid_indices = top_indices[top_indices < num_tickers]
+                ranked_tickers = tickers_arr[valid_indices]
+
+            # Populate present rank positions
+            for rank_pos in range(1, max_rank_cols + 1):
+                if rank_pos <= len(ranked_tickers):
+                    row[f"rank_{rank_pos}"] = ranked_tickers[rank_pos - 1]
+                else:
+                    # Pad missing ranks with empty strings for small test sets
+                    row[f"rank_{rank_pos}"] = ""
+
             records.append(row)
 
         df = pd.DataFrame(records)
         csv_buffer = io.BytesIO()
         df.to_csv(csv_buffer, index=False)
         self._upload_bytes(csv_buffer.getvalue(), "daily_top_100_rankings.csv", "text/csv")
-
+    
     def save_individual_ranks(
         self,
         timestamps: list[str] | np.ndarray,
