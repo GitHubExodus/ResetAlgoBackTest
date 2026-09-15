@@ -60,7 +60,9 @@ def compute_cross_sectional_ranks_numba(
         - top100_flags: (Num_Tickers, Timestamps) boolean flags for top K keepers
         - top100_ordered_indices: (Timestamps, top_k) ticker indices ordered by min rank
     """
-    num_tickers, num_bars = list1_matrix.shape
+    # Explicit shape indexing to prevent Numba nopython tuple unpacking TypingError
+    num_tickers = list1_matrix.shape[0]
+    num_bars = list1_matrix.shape[1]
 
     ranks_list1 = np.zeros((num_tickers, num_bars), dtype=np.int64)
     ranks_list2 = np.zeros((num_tickers, num_bars), dtype=np.int64)
@@ -107,8 +109,8 @@ def process_cross_sectional_rankings(
 
     on outputs provided by Chat 2 (`indicators.py`).
     """
-    list1_matrix = indicator_outputs["avg_ema"]  # EMA of average score
-    list2_matrix = indicator_outputs["vol_sma"]  # 20-day rolling volume
+    list1_matrix = np.ascontiguousarray(indicator_outputs["avg_ema"], dtype=np.float64)
+    list2_matrix = np.ascontiguousarray(indicator_outputs["vol_sma"], dtype=np.float64)
 
     (
         ranks_list1,
@@ -130,29 +132,46 @@ def process_cross_sectional_rankings(
 
 
 def compute_rankings_and_top100(
-    indicator_outputs: dict[str, np.ndarray] | tuple, top_k: int = 100
+    *args, top_k: int = 100, **kwargs
 ) -> dict[str, np.ndarray]:
-    """Alias / wrapper matching main.py import expectations."""
-    if isinstance(indicator_outputs, dict):
-        return process_cross_sectional_rankings(indicator_outputs, top_k=top_k)
+    """Flexible wrapper matching all potential invocation patterns from main.py."""
+    if len(args) == 1 and isinstance(args[0], dict):
+        return process_cross_sectional_rankings(args[0], top_k=top_k)
+
+    if len(args) == 2:
+        list1_matrix, list2_matrix = args[0], args[1]
+    elif "list1_matrix" in kwargs and "list2_matrix" in kwargs:
+        list1_matrix, list2_matrix = kwargs["list1_matrix"], kwargs["list2_matrix"]
+    elif len(args) == 1 and isinstance(args[0], (tuple, list)):
+        list1_matrix, list2_matrix = args[0][0], args[0][1]
     else:
-        list1_matrix, list2_matrix = indicator_outputs[0], indicator_outputs[1]
-        (
-            ranks_list1,
-            ranks_list2,
-            ranks_min,
-            top100_flags,
-            top100_ordered_indices,
-        ) = compute_cross_sectional_ranks_numba(
-            list1_matrix, list2_matrix, top_k=top_k
-        )
-        return {
-            "ranks_list1": ranks_list1,
-            "ranks_list2": ranks_list2,
-            "ranks_min": ranks_min,
-            "top100_flags": top100_flags,
-            "top100_ordered_indices": top100_ordered_indices,
-        }
+        raise ValueError("Invalid argument format passed to compute_rankings_and_top100.")
+
+    # Cast to C-contiguous 2D float64 matrices to satisfy Numba typing requirements
+    list1_matrix = np.ascontiguousarray(list1_matrix, dtype=np.float64)
+    list2_matrix = np.ascontiguousarray(list2_matrix, dtype=np.float64)
+
+    (
+        ranks_list1,
+        ranks_list2,
+        ranks_min,
+        top100_flags,
+        top100_ordered_indices,
+    ) = compute_cross_sectional_ranks_numba(
+        list1_matrix, list2_matrix, top_k=top_k
+    )
+
+    return {
+        "ranks_list1": ranks_list1,
+        "ranks_list2": ranks_list2,
+        "ranks_min": ranks_min,
+        "top100_flags": top100_flags,
+        "top100_ordered_indices": top100_ordered_indices,
+        "list1_ranks": ranks_list1,
+        "list2_ranks": ranks_list2,
+        "list3_ranks": ranks_min,
+        "top100_matrix": top100_flags,
+    }
 
 
 if __name__ == "__main__":
