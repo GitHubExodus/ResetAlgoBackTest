@@ -60,7 +60,6 @@ def compute_cross_sectional_ranks_numba(
         - top100_flags: (Num_Tickers, Timestamps) boolean flags for top K keepers
         - top100_ordered_indices: (Timestamps, top_k) ticker indices ordered by min rank
     """
-    # Explicit shape indexing to prevent Numba nopython tuple unpacking TypingError
     num_tickers = list1_matrix.shape[0]
     num_bars = list1_matrix.shape[1]
 
@@ -102,54 +101,16 @@ def compute_cross_sectional_ranks_numba(
     )
 
 
-def process_cross_sectional_rankings(
-    indicator_outputs: dict[str, np.ndarray], top_k: int = 100
-) -> dict[str, np.ndarray]:
-    """Wrapper function to execute Numba cross-sectional ranking routines
-
-    on outputs provided by Chat 2 (`indicators.py`).
-    """
-    list1_matrix = np.ascontiguousarray(indicator_outputs["avg_ema"], dtype=np.float64)
-    list2_matrix = np.ascontiguousarray(indicator_outputs["vol_sma"], dtype=np.float64)
-
-    (
-        ranks_list1,
-        ranks_list2,
-        ranks_min,
-        top100_flags,
-        top100_ordered_indices,
-    ) = compute_cross_sectional_ranks_numba(
-        list1_matrix, list2_matrix, top_k=top_k
-    )
-
-    return {
-        "ranks_list1": ranks_list1,
-        "ranks_list2": ranks_list2,
-        "ranks_min": ranks_min,
-        "top100_flags": top100_flags,
-        "top100_ordered_indices": top100_ordered_indices,
-    }
-
-
 def compute_rankings_and_top100(
-    *args, top_k: int = 100, **kwargs
+    list1_matrix: np.ndarray, list2_matrix: np.ndarray, top_k: int = 100
 ) -> dict[str, np.ndarray]:
-    """Flexible wrapper matching all potential invocation patterns from main.py."""
-    if len(args) == 1 and isinstance(args[0], dict):
-        return process_cross_sectional_rankings(args[0], top_k=top_k)
+    """Computes cross-sectional rankings directly from two positional matrix inputs.
 
-    if len(args) == 2:
-        list1_matrix, list2_matrix = args[0], args[1]
-    elif "list1_matrix" in kwargs and "list2_matrix" in kwargs:
-        list1_matrix, list2_matrix = kwargs["list1_matrix"], kwargs["list2_matrix"]
-    elif len(args) == 1 and isinstance(args[0], (tuple, list)):
-        list1_matrix, list2_matrix = args[0][0], args[0][1]
-    else:
-        raise ValueError("Invalid argument format passed to compute_rankings_and_top100.")
-
-    # Cast to C-contiguous 2D float64 matrices to satisfy Numba typing requirements
-    list1_matrix = np.ascontiguousarray(list1_matrix, dtype=np.float64)
-    list2_matrix = np.ascontiguousarray(list2_matrix, dtype=np.float64)
+    Returns dictionary mapping containing aliases for both top_100_matrix and top100_flags.
+    """
+    # Ensure C-contiguous float64 numpy matrices for Numba compatibility
+    l1 = np.ascontiguousarray(list1_matrix, dtype=np.float64)
+    l2 = np.ascontiguousarray(list2_matrix, dtype=np.float64)
 
     (
         ranks_list1,
@@ -157,21 +118,31 @@ def compute_rankings_and_top100(
         ranks_min,
         top100_flags,
         top100_ordered_indices,
-    ) = compute_cross_sectional_ranks_numba(
-        list1_matrix, list2_matrix, top_k=top_k
-    )
+    ) = compute_cross_sectional_ranks_numba(l1, l2, top_k=top_k)
 
     return {
         "ranks_list1": ranks_list1,
         "ranks_list2": ranks_list2,
         "ranks_min": ranks_min,
         "top100_flags": top100_flags,
+        "top_100_matrix": top100_flags,
+        "top100_matrix": top100_flags,
         "top100_ordered_indices": top100_ordered_indices,
         "list1_ranks": ranks_list1,
         "list2_ranks": ranks_list2,
         "list3_ranks": ranks_min,
-        "top100_matrix": top100_flags,
     }
+
+
+def process_cross_sectional_rankings(
+    indicator_outputs: dict[str, np.ndarray], top_k: int = 100
+) -> dict[str, np.ndarray]:
+    """Legacy dictionary-wrapper maintained for backward compatibility."""
+    return compute_rankings_and_top100(
+        indicator_outputs["avg_ema"],
+        indicator_outputs["vol_sma"],
+        top_k=top_k,
+    )
 
 
 if __name__ == "__main__":
@@ -182,13 +153,12 @@ if __name__ == "__main__":
     mock_avg_ema = np.random.randn(num_tickers, num_bars)
     mock_vol_sma = np.random.rand(num_tickers, num_bars) * 1000000.0
 
-    mock_indicators = {"avg_ema": mock_avg_ema, "vol_sma": mock_vol_sma}
-
-    results = compute_rankings_and_top100(mock_indicators, top_k=100)
+    # Test direct positional call matching main.py signature
+    results = compute_rankings_and_top100(mock_avg_ema, mock_vol_sma, top_k=100)
 
     print("Ranking processing complete.")
     print(f"Ranks Min Shape: {results['ranks_min'].shape}")
-    print(f"Top 100 Flags Shape: {results['top100_flags'].shape}")
+    print(f"Top 100 Matrix Shape: {results['top_100_matrix'].shape}")
     print(
         f"Top 100 Ordered Indices Shape: {results['top100_ordered_indices'].shape}"
     )
