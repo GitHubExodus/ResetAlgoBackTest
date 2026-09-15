@@ -64,7 +64,7 @@ def compute_cross_sectional_ranks_numba(
 
     ranks_ema = np.zeros((num_tickers, num_bars), dtype=np.int64)
     top100_flags = np.zeros((num_tickers, num_bars), dtype=np.bool_)
-    
+
     # Pre-fill with -1 as padding for unused rank slots when effective_k < top_k
     top100_ordered_indices = np.full((num_bars, top_k), -1, dtype=np.int64)
 
@@ -93,7 +93,10 @@ def compute_cross_sectional_ranks_numba(
 def compute_rankings_and_top100(
     *args, top_k: int = 100, **kwargs
 ) -> dict[str, np.ndarray]:
-    """Flexible wrapper extracting cross-sectional rankings based exclusively on the EMA matrix."""
+    """Flexible wrapper extracting cross-sectional rankings based on the EMA matrix.
+
+    Provides explicit key mappings for list1_ranks, top_100_matrix, and other aliases.
+    """
     # Unpack EMA matrix regardless of input positional/keyword signature
     if len(args) >= 1:
         ema_matrix = args[0]
@@ -116,11 +119,12 @@ def compute_rankings_and_top100(
     ) = compute_cross_sectional_ranks_numba(ema_matrix, top_k=top_k)
 
     return {
+        "list1_ranks": ranks_ema,
+        "ranks_ema": ranks_ema,
+        "ranks_list1": ranks_ema,
         "top_100_matrix": top100_flags,
         "top100_flags": top100_flags,
         "top100_matrix": top100_flags,
-        "ranks_ema": ranks_ema,
-        "ranks_list1": ranks_ema,
         "top100_ordered_indices": top100_ordered_indices,
     }
 
@@ -134,7 +138,6 @@ def process_cross_sectional_rankings(
 
 
 if __name__ == "__main__":
-    # Test execution placeholder
     num_tickers = 1000
     num_bars = 250
 
@@ -143,7 +146,7 @@ if __name__ == "__main__":
 
     results = compute_rankings_and_top100(mock_avg_ema, top_k=100)
 
-    print("Single-metric ranking complete.")
-    print(f"Top 100 Matrix Shape: {results['top_100_matrix'].shape}")
-    print(f"EMA Ranks Shape: {results['ranks_ema'].shape}")
+    print("Ranking complete.")
+    print(f"list1_ranks Shape: {results['list1_ranks'].shape}")
+    print(f"top_100_matrix Shape: {results['top_100_matrix'].shape}")
     print(f"Ordered Indices Shape: {results['top100_ordered_indices'].shape}")
