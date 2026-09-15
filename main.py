@@ -24,7 +24,7 @@ def run_pipeline():
         aws_access_key_id=ACCESS_KEY,
         aws_secret_access_key=SECRET_KEY,
         bucket_name=BUCKET_NAME,
-        sample_size=2
+        sample_size=1000
     )
     
     dataset = loader.process_dataset()
