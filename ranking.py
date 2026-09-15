@@ -95,7 +95,7 @@ def compute_rankings_and_top100(
 ) -> dict[str, np.ndarray]:
     """Flexible wrapper extracting cross-sectional rankings based on the EMA matrix.
 
-    Provides explicit key mappings for list1_ranks, top_100_matrix, and other aliases.
+    Exposes all required rank key aliases (list1_ranks, list2_ranks, list3_ranks, ranks_ema, top_100_matrix).
     """
     # Unpack EMA matrix regardless of input positional/keyword signature
     if len(args) >= 1:
@@ -119,9 +119,16 @@ def compute_rankings_and_top100(
     ) = compute_cross_sectional_ranks_numba(ema_matrix, top_k=top_k)
 
     return {
+        # Performance rank matrix aliases
         "list1_ranks": ranks_ema,
-        "ranks_ema": ranks_ema,
         "ranks_list1": ranks_ema,
+        "ranks_ema": ranks_ema,
+        # Duplicated aliases for secondary list and min rank lookups in legacy scripts
+        "list2_ranks": ranks_ema,
+        "ranks_list2": ranks_ema,
+        "list3_ranks": ranks_ema,
+        "ranks_min": ranks_ema,
+        # Selection mask and ordered indices aliases
         "top_100_matrix": top100_flags,
         "top100_flags": top100_flags,
         "top100_matrix": top100_flags,
@@ -148,5 +155,6 @@ if __name__ == "__main__":
 
     print("Ranking complete.")
     print(f"list1_ranks Shape: {results['list1_ranks'].shape}")
+    print(f"list2_ranks Shape: {results['list2_ranks'].shape}")
     print(f"top_100_matrix Shape: {results['top_100_matrix'].shape}")
     print(f"Ordered Indices Shape: {results['top100_ordered_indices'].shape}")
