@@ -98,16 +98,25 @@ class R2StorageManager:
         self,
         timestamps: list[str] | np.ndarray,
         valid_tickers: list[str] | np.ndarray,
-        rank_matrix: np.ndarray,
+        *args,
     ):
-        """Serializes single-indicator stock ranks into a wide-format CSV table.
+        """Serializes stock ranks into a wide-format CSV table.
 
-        Accepts a single positional rank_matrix parameter (Tickers x Timestamps or
-        Timestamps x Tickers) and outputs:
+        Supports both the single rank matrix call or legacy multi-rank parameter signatures:
+          - save_individual_ranks(timestamps, valid_tickers, rank_matrix)
+          - save_individual_ranks(timestamps, valid_tickers, list1_ranks, list2_ranks, list3_ranks)
+        
+        Outputs:
           - Rows: Timestamps (ordered chronologically from oldest to newest)
           - Columns: Stock Tickers
           - Cells: Numerical Rank
         """
+        if not args:
+            raise ValueError("save_individual_ranks requires at least one rank matrix argument.")
+
+        # If multiple matrices are passed (e.g. list1_ranks, list2_ranks, list3_ranks), select primary rank matrix
+        rank_matrix = args[0]
+
         ts_list = [str(ts) for ts in timestamps]
         tickers_list = list(valid_tickers)
 
