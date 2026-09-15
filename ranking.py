@@ -42,32 +42,21 @@ def compute_cross_sectional_ranks_numba(
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Computes cross-sectional ranks bar-by-bar and extracts top K keepers.
 
-    Parameters:
-    -----------
-    list1_matrix : np.ndarray
-        2D array of shape (Num_Tickers, Timestamps) for EMA of average score.
-    list2_matrix : np.ndarray
-        2D array of shape (Num_Tickers, Timestamps) for 20-day rolling volume.
-    top_k : int
-        Number of top stocks to keep per bar.
-
-    Returns:
-    --------
-    tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]
-        - ranks_list1: (Num_Tickers, Timestamps) integer ranks
-        - ranks_list2: (Num_Tickers, Timestamps) integer ranks
-        - ranks_min: (Num_Tickers, Timestamps) minimum combined rank (List 3)
-        - top100_flags: (Num_Tickers, Timestamps) boolean flags for top K keepers
-        - top100_ordered_indices: (Timestamps, top_k) ticker indices ordered by min rank
+    Safely bounds top_k to num_tickers to handle small test batches.
     """
     num_tickers = list1_matrix.shape[0]
     num_bars = list1_matrix.shape[1]
+
+    # Dynamically cap active top_k to available tickers
+    effective_k = min(top_k, num_tickers)
 
     ranks_list1 = np.zeros((num_tickers, num_bars), dtype=np.int64)
     ranks_list2 = np.zeros((num_tickers, num_bars), dtype=np.int64)
     ranks_min = np.zeros((num_tickers, num_bars), dtype=np.int64)
     top100_flags = np.zeros((num_tickers, num_bars), dtype=np.bool_)
-    top100_ordered_indices = np.zeros((num_bars, top_k), dtype=np.int64)
+    
+    # Pre-fill with -1 as padding for unused rank slots when effective_k < top_k
+    top100_ordered_indices = np.full((num_bars, top_k), -1, dtype=np.int64)
 
     for b in range(num_bars):
         # Extract 1D cross-section for the current bar
@@ -85,11 +74,11 @@ def compute_cross_sectional_ranks_numba(
         bar_min_ranks = np.minimum(r1, r2)
         ranks_min[:, b] = bar_min_ranks
 
-        # Extract top K indices by sorting the bar's minimum ranks ascending
+        # Extract top indices up to effective_k
         sorted_ticker_indices = np.argsort(bar_min_ranks)
-        top_k_indices = sorted_ticker_indices[:top_k]
+        top_k_indices = sorted_ticker_indices[:effective_k]
 
-        top100_ordered_indices[b, :] = top_k_indices
+        top100_ordered_indices[b, :effective_k] = top_k_indices
         top100_flags[top_k_indices, b] = True
 
     return (
@@ -106,7 +95,7 @@ def compute_rankings_and_top100(
 ) -> dict[str, np.ndarray]:
     """Computes cross-sectional rankings directly from positional matrix inputs.
 
-    Explicitly returns "top_100_matrix" for main.py compatibility.
+    Explicitly handles small ticker counts and returns "top_100_matrix".
     """
     # Cast to C-contiguous 2D float64 matrices to satisfy Numba typing requirements
     l1 = np.ascontiguousarray(list1_matrix, dtype=np.float64)
@@ -146,8 +135,9 @@ def process_cross_sectional_rankings(
 
 
 if __name__ == "__main__":
-    num_tickers = 1000
-    num_bars = 250
+    # Test execution with a small batch (2 tickers, top_k=100)
+    num_tickers = 2
+    num_bars = 10
 
     np.random.seed(42)
     mock_avg_ema = np.random.randn(num_tickers, num_bars)
@@ -155,9 +145,6 @@ if __name__ == "__main__":
 
     results = compute_rankings_and_top100(mock_avg_ema, mock_vol_sma, top_k=100)
 
-    print("Ranking processing complete.")
+    print("Small batch ranking completed successfully.")
     print(f"Top 100 Matrix Shape: {results['top_100_matrix'].shape}")
-    print(f"Ranks Min Shape: {results['ranks_min'].shape}")
-    print(
-        f"Top 100 Ordered Indices Shape: {results['top100_ordered_indices'].shape}"
-    )
+    print(f"Ordered Indices Shape: {results['top100_ordered_indices'].shape}")
