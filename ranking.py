@@ -104,11 +104,11 @@ def compute_cross_sectional_ranks_numba(
 def compute_rankings_and_top100(
     list1_matrix: np.ndarray, list2_matrix: np.ndarray, top_k: int = 100
 ) -> dict[str, np.ndarray]:
-    """Computes cross-sectional rankings directly from two positional matrix inputs.
+    """Computes cross-sectional rankings directly from positional matrix inputs.
 
-    Returns dictionary mapping containing aliases for both top_100_matrix and top100_flags.
+    Explicitly returns "top_100_matrix" for main.py compatibility.
     """
-    # Ensure C-contiguous float64 numpy matrices for Numba compatibility
+    # Cast to C-contiguous 2D float64 matrices to satisfy Numba typing requirements
     l1 = np.ascontiguousarray(list1_matrix, dtype=np.float64)
     l2 = np.ascontiguousarray(list2_matrix, dtype=np.float64)
 
@@ -121,12 +121,12 @@ def compute_rankings_and_top100(
     ) = compute_cross_sectional_ranks_numba(l1, l2, top_k=top_k)
 
     return {
+        "top_100_matrix": top100_flags,
+        "top100_flags": top100_flags,
+        "top100_matrix": top100_flags,
         "ranks_list1": ranks_list1,
         "ranks_list2": ranks_list2,
         "ranks_min": ranks_min,
-        "top100_flags": top100_flags,
-        "top_100_matrix": top100_flags,
-        "top100_matrix": top100_flags,
         "top100_ordered_indices": top100_ordered_indices,
         "list1_ranks": ranks_list1,
         "list2_ranks": ranks_list2,
@@ -137,7 +137,7 @@ def compute_rankings_and_top100(
 def process_cross_sectional_rankings(
     indicator_outputs: dict[str, np.ndarray], top_k: int = 100
 ) -> dict[str, np.ndarray]:
-    """Legacy dictionary-wrapper maintained for backward compatibility."""
+    """Wrapper executing Numba cross-sectional rankings on dictionary outputs."""
     return compute_rankings_and_top100(
         indicator_outputs["avg_ema"],
         indicator_outputs["vol_sma"],
@@ -153,12 +153,11 @@ if __name__ == "__main__":
     mock_avg_ema = np.random.randn(num_tickers, num_bars)
     mock_vol_sma = np.random.rand(num_tickers, num_bars) * 1000000.0
 
-    # Test direct positional call matching main.py signature
     results = compute_rankings_and_top100(mock_avg_ema, mock_vol_sma, top_k=100)
 
     print("Ranking processing complete.")
-    print(f"Ranks Min Shape: {results['ranks_min'].shape}")
     print(f"Top 100 Matrix Shape: {results['top_100_matrix'].shape}")
+    print(f"Ranks Min Shape: {results['ranks_min'].shape}")
     print(
         f"Top 100 Ordered Indices Shape: {results['top100_ordered_indices'].shape}"
     )
