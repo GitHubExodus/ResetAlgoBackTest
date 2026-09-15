@@ -51,7 +51,6 @@ class R2DataLoader:
         parquet_files = []
         paginator = self.s3_client.get_paginator("list_objects_v2")
 
-        # Excluded internal path keywords to strictly filter out result datasets
         excluded_folders = (
             "riskreward/",
             "evaluate_cross_stock/",
@@ -72,18 +71,15 @@ class R2DataLoader:
                         key = obj["Key"]
                         key_lower = key.lower()
 
-                        # Skip files inside known internal result subfolders
                         if any(folder in key_lower for folder in excluded_folders):
                             continue
 
-                        # If raw_prefix is not set, ensure key has no slashes (root directory level)
                         if not self.raw_prefix and "/" in key:
                             continue
 
-                        # Match valid parquet files
                         if key.endswith(".parquet"):
                             parquet_files.append(key)
-                            
+
         except Exception as e:
             print(f"Error fetching bucket keys: {e}")
             raise
@@ -101,19 +97,13 @@ class R2DataLoader:
             )
             data_bytes = response["Body"].read()
 
-            # Read Parquet stream into pandas DataFrame
             df = pd.read_parquet(io.BytesIO(data_bytes))
-
-            # Standardize column headers to lowercase
             df.columns = df.columns.str.lower()
 
-            # Confirm required OHLCV columns exist
             required_cols = {"open", "high", "low", "close", "volume"}
             if not required_cols.issubset(df.columns):
-                print(f"Skipping key {key}: missing OHLCV columns. Found columns: {list(df.columns)}")
                 return None
 
-            # Identify timestamp column or use index
             if "timestamp" in df.columns:
                 df["timestamp"] = pd.to_datetime(df["timestamp"])
                 df.set_index("timestamp", inplace=True)
@@ -123,10 +113,8 @@ class R2DataLoader:
             else:
                 df.index = pd.to_datetime(df.index)
 
-            # Sort chronologically
             df.sort_index(inplace=True)
 
-            # Resample 1-minute OHLCV data into daily bars
             daily_df = (
                 df.resample("1D")
                 .agg(
@@ -150,7 +138,7 @@ class R2DataLoader:
     def process_dataset(self) -> dict:
         """Downloads, resamples, aligns, imputes missing data, and builds a clean
 
-        3D NumPy panel of shape (Num_Tickers, Timestamps, 5).
+        3D NumPy panel of shape (Num_Tickers, Timestamps, 5). Includes progress logging.
         """
         all_keys = self.list_stock_parquets()
 
@@ -165,12 +153,22 @@ class R2DataLoader:
             selected_keys = all_keys
 
         raw_data = {}
+        processed_count = 0
+
+        print(f"Starting download and resampling for {len(selected_keys)} stock files...")
+
         for key in selected_keys:
-            # Extract ticker name from key filename
             ticker = key.split("/")[-1].replace(".parquet", "")
             df = self.fetch_and_resample(key)
             if df is not None:
                 raw_data[ticker] = df
+                processed_count += 1
+                
+                # Print progress every 10 stocks downloaded and processed
+                if processed_count % 10 == 0:
+                    print(f"Downloaded and processed {processed_count} stocks...")
+
+        print(f"Completed download step. Successfully processed {processed_count} total stocks.")
 
         if not raw_data:
             raise ValueError(
@@ -197,20 +195,16 @@ class R2DataLoader:
         for ticker, df in raw_data.items():
             df.index = df.index.tz_localize(None)
 
-            # Check coverage ratio prior to imputation
             overlap_count = df.index.isin(master_index).sum()
             if (overlap_count / timeline_len) < self.min_valid_ratio:
                 continue
 
-            # Reindex to master timeline
             aligned = df.reindex(master_index)
 
-            # Forward-fill and backward-fill missing OHLC price values
             aligned[["open", "high", "low", "close"]] = aligned[
                 ["open", "high", "low", "close"]
             ].ffill().bfill()
 
-            # Fill missing volume bars with zero
             aligned["volume"] = aligned["volume"].fillna(0.0)
 
             aligned_dfs.append(
@@ -224,10 +218,8 @@ class R2DataLoader:
             )
 
         # 3. Stack into unified 3D NumPy panel: (Num_Tickers, Timestamps, 5)
-        # Features -> 0: Open, 1: High, 2: Low, 3: Close, 4: Volume
         data_panel = np.stack(aligned_dfs, axis=0)
 
-        # Final safety check for remaining NaNs
         if np.isnan(data_panel).any():
             data_panel = np.nan_to_num(data_panel, nan=0.0)
 
@@ -246,7 +238,7 @@ if __name__ == "__main__":
         bucket_name="stocks-data",
         sample_size=1000,
         min_valid_ratio=0.3,
-        raw_prefix="",  # Target files directly in root directory
+        raw_prefix="",
     )
 
     # dataset = loader.process_dataset()

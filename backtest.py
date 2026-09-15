@@ -19,16 +19,16 @@ def run_backtest_kernel(
     close_prices : np.ndarray (shape: Num_Tickers, Timestamps)
         2D matrix of daily close prices.
     fixed_weight : float
-        Contribution weight of each active stock per day (default 1% = 0.01).
+        Fixed portfolio allocation weight per stock (default 1% = 0.01).
         
     Returns:
     --------
     daily_returns : np.ndarray (shape: Timestamps)
-        Daily portfolio return percentages.
+        Daily normalized portfolio return percentages.
     equity_curve : np.ndarray (shape: Timestamps)
-        Normalized portfolio equity curve starting at 1.0 (or 100%).
+        Normalized portfolio equity curve starting at baseline 1.0.
     active_counts : np.ndarray (shape: Timestamps)
-        Count of active positions per bar.
+        Count of active top 100 positions per bar.
     """
     num_tickers, num_bars = top_100_mask.shape
     
@@ -45,21 +45,27 @@ def run_backtest_kernel(
             if prev_p > 0 and not np.isnan(prev_p) and not np.isnan(curr_p):
                 asset_daily_returns[t, b] = (curr_p - prev_p) / prev_p
 
-    # Compute daily weighted portfolio performance
+    # Compute daily normalized equal-weight portfolio performance
     for b in range(1, num_bars):
         active_mask = top_100_mask[:, b - 1]  # Positions held entering bar b
         n_active = np.sum(active_mask)
         active_counts[b] = n_active
         
         if n_active > 0:
-            # Sum returns of active positions scaled by fixed weight (1%)
             total_active_return = 0.0
             for t in range(num_tickers):
                 if active_mask[t]:
                     total_active_return += asset_daily_returns[t, b]
             
-            daily_returns[b] = total_active_return * fixed_weight
+            # Equal-weight diverse allocation:
+            # If 100 or more stocks are active, scale by fixed 1% weight (0.01)
+            # If fewer than 100 stocks are active, scale dynamically by (1 / n_active)
+            if n_active >= 100:
+                daily_returns[b] = total_active_return * fixed_weight
+            else:
+                daily_returns[b] = total_active_return / n_active
         
+        # Cumulative compounding starting from initial baseline 1.0
         equity_curve[b] = equity_curve[b - 1] * (1.0 + daily_returns[b])
         
     return daily_returns, equity_curve, active_counts
@@ -73,13 +79,12 @@ def extract_trade_log(
 ) -> pd.DataFrame:
     """
     Identifies entry (BUY) and exit (EXITS) timestamps for every stock 
-    and calculates individual trade percentage returns.
+    and calculates individual trade percentage returns normally.
     """
     num_tickers, num_bars = top_100_mask.shape
     trades = []
 
     for t in range(num_tickers):
-        # Updated condition to safely evaluate NumPy array/List ticker indexing
         ticker = tickers[t] if (tickers is not None and len(tickers) > t) else f"STOCK_{t}"
         in_position = False
         entry_idx = 0
