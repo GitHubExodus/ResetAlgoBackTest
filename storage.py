@@ -78,11 +78,9 @@ class R2StorageManager:
             else:
                 # Integer index matrix shape: (Timestamps, Top_K)
                 top_indices = top_100_matrix[t_idx]
-                # Filter out invalid indices (e.g. -1 padding for small datasets) or out-of-bounds indices
                 valid_indices = top_indices[(top_indices >= 0) & (top_indices < num_tickers)]
                 ranked_tickers = tickers_arr[valid_indices]
 
-            # Populate available rank positions and pad missing ones up to max_rank_cols
             for rank_pos in range(1, max_rank_cols + 1):
                 if rank_pos <= len(ranked_tickers):
                     row[f"rank_{rank_pos}"] = ranked_tickers[rank_pos - 1]
@@ -102,25 +100,27 @@ class R2StorageManager:
         valid_tickers: list[str] | np.ndarray,
         rank_matrix: np.ndarray,
     ):
-        """Serializes individual stock ranks into a wide-format CSV table.
+        """Serializes single-indicator stock ranks into a wide-format CSV table.
 
-        Rows = Timestamps (ordered chronologically from oldest to newest)
-        Columns = Tickers
-        Values = Numerical rank on that specific timestamp
+        Accepts a single positional rank_matrix parameter (Tickers x Timestamps or
+        Timestamps x Tickers) and outputs:
+          - Rows: Timestamps (ordered chronologically from oldest to newest)
+          - Columns: Stock Tickers
+          - Cells: Numerical Rank
         """
         ts_list = [str(ts) for ts in timestamps]
         tickers_list = list(valid_tickers)
 
-        # Ensure rank_matrix has shape (Timestamps, Tickers)
+        # Transpose if shape is (Num_Tickers, Num_Timestamps) to achieve (Num_Timestamps, Num_Tickers)
         if rank_matrix.shape == (len(tickers_list), len(ts_list)):
             rank_data = rank_matrix.T
         else:
             rank_data = rank_matrix
 
-        # Construct wide-format DataFrame
+        # Build wide dataframe with timestamps as index and tickers as column headers
         df = pd.DataFrame(rank_data, index=ts_list, columns=tickers_list)
-        
-        # Sort chronologically from oldest to newest
+
+        # Ensure chronological ordering from oldest to newest
         df.index.name = "timestamp"
         df = df.sort_index(ascending=True).reset_index()
 
@@ -139,7 +139,7 @@ class R2StorageManager:
             "timestamp": timestamps,
             "portfolio_equity": equity_curve,
         })
-        
+
         if daily_contributions is not None:
             df["daily_contribution"] = daily_contributions
 
@@ -155,4 +155,4 @@ if __name__ == "__main__":
         aws_secret_access_key="<R2_SECRET_KEY>",
         bucket_name="stock-data-bucket",
     )
-    print("Chat 5 storage manager module initialized successfully.")
+    print("Chat 5 storage manager module updated successfully.")
