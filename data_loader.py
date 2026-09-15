@@ -17,12 +17,12 @@ class R2DataLoader:
         sample_size: int = 1000,
         min_valid_ratio: float = 0.3,
     ):
-        """Data Loader for Cloudflare R2 stock CSVs.
+        """Data Loader for Cloudflare R2 stock Parquet files.
 
         Parameters:
         -----------
         sample_size : int
-            Number of stock CSV files to randomly sample from the bucket.
+            Number of stock Parquet files to randomly sample from the bucket.
         min_valid_ratio : float
             Minimum fraction of total timeline dates a stock must have data for
             (prior to ffill/bfill) to be retained in the final array.
@@ -38,9 +38,9 @@ class R2DataLoader:
             config=Config(signature_version="s3v4"),
         )
 
-    def list_stock_csvs(self) -> list[str]:
-        """Scans the flat R2 bucket for CSV files."""
-        csv_files = []
+    def list_stock_parquets(self) -> list[str]:
+        """Scans the Cloudflare R2 bucket for Parquet files."""
+        parquet_files = []
         paginator = self.s3_client.get_paginator("list_objects_v2")
 
         try:
@@ -48,23 +48,27 @@ class R2DataLoader:
                 if "Contents" in page:
                     for obj in page["Contents"]:
                         key = obj["Key"]
-                        if key.endswith(".csv"):
-                            csv_files.append(key)
+                        if key.endswith(".parquet") or ".parquet" in key:
+                            parquet_files.append(key)
         except Exception as e:
             print(f"Error fetching bucket keys: {e}")
             raise
 
-        return csv_files
+        return parquet_files
 
     def fetch_and_resample(self, key: str) -> pd.DataFrame | None:
-        """Downloads a single 1-minute CSV from R2 and resamples it to daily bars."""
+        """Downloads a single Parquet file from R2 using pd.read_parquet
+
+        and resamples 1-minute OHLCV data into clean daily bars.
+        """
         try:
             response = self.s3_client.get_object(
                 Bucket=self.bucket_name, Key=key
             )
             data_bytes = response["Body"].read()
 
-            df = pd.read_csv(io.BytesIO(data_bytes))
+            # Read parquet stream into Pandas DataFrame
+            df = pd.read_parquet(io.BytesIO(data_bytes))
 
             # Standardize column headers to lowercase
             df.columns = df.columns.str.lower()
@@ -108,11 +112,11 @@ class R2DataLoader:
 
         3D NumPy array of shape (Num_Tickers, Timestamps, 5).
         """
-        all_keys = self.list_stock_csvs()
+        all_keys = self.list_stock_parquets()
 
         if not all_keys:
             raise ValueError(
-                f"No CSV files found in bucket '{self.bucket_name}'."
+                f"No Parquet files found in bucket '{self.bucket_name}'."
             )
 
         if len(all_keys) > self.sample_size:
@@ -122,14 +126,14 @@ class R2DataLoader:
 
         raw_data = {}
         for key in selected_keys:
-            ticker = key.split("/")[-1].replace(".csv", "")
+            ticker = key.split("/")[-1].replace(".parquet", "")
             df = self.fetch_and_resample(key)
             if df is not None:
                 raw_data[ticker] = df
 
         if not raw_data:
             raise ValueError(
-                "No valid daily data was parsed from the downloaded files."
+                "No valid daily data was parsed from the downloaded Parquet files."
             )
 
         # 1. Establish master daily date index across all fetched stocks
@@ -161,16 +165,18 @@ class R2DataLoader:
             # Reindex to master timeline
             aligned = df.reindex(master_index)
 
-            # Forward-fill gaps (e.g., weekend/holiday gaps or non-trading days)
-            # Backward-fill early missing history (e.g., IPOs after dataset start)
+            # Forward-fill gaps (weekend/holiday gaps or non-trading days)
+            # Backward-fill early missing history (IPOs after dataset start)
             aligned[["open", "high", "low", "close"]] = aligned[
                 ["open", "high", "low", "close"]
             ].ffill().bfill()
-            
+
             # Fill volume missing bars with zero
             aligned["volume"] = aligned["volume"].fillna(0.0)
 
-            aligned_dfs.append(aligned[["open", "high", "low", "close", "volume"]].values)
+            aligned_dfs.append(
+                aligned[["open", "high", "low", "close", "volume"]].values
+            )
             valid_tickers.append(ticker)
 
         if not aligned_dfs:
@@ -193,16 +199,16 @@ class R2DataLoader:
         }
 
 
-# if __name__ == "__main__":
-#     loader = R2DataLoader(
-#         endpoint_url="https://<account_id>.r2.cloudflarestorage.com",
-#         aws_access_key_id="<R2_ACCESS_KEY>",
-#         aws_secret_access_key="<R2_SECRET_KEY>",
-#         bucket_name="stock-data-bucket",
-#         sample_size=1000,
-#         min_valid_ratio=0.3,
-#     )
+if __name__ == "__main__":
+    loader = R2DataLoader(
+        endpoint_url="https://<account_id>.r2.cloudflarestorage.com",
+        aws_access_key_id="<R2_ACCESS_KEY>",
+        aws_secret_access_key="<R2_SECRET_KEY>",
+        bucket_name="stocks-data",
+        sample_size=1000,
+        min_valid_ratio=0.3,
+    )
 
-#     # dataset = loader.process_dataset()
-#     # print(f"Valid Tickers: {len(dataset['valid_tickers'])}")
-#     # print(f"NumPy Panel Shape: {dataset['panel'].shape}")
+    # dataset = loader.process_dataset()
+    # print(f"Valid Tickers: {len(dataset['valid_tickers'])}")
+    # print(f"NumPy Panel Shape: {dataset['panel'].shape}")
